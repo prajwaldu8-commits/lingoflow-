@@ -1,0 +1,16 @@
+# Render Blueprint — deploys LingoFlow with one click
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: lingoflow
+    runtime: node
+    plan: free
+    region: singapore          # closest to India → fastest for you
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: PORT
+        value: "10000"
