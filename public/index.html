@@ -33,8 +33,10 @@
   <nav class="tabs" id="tabs">
     <button class="tab active" data-tab="learn"><svg class="ic"><use href="#i-book"/></svg><span>Learn</span></button>
     <button class="tab" data-tab="dash"><svg class="ic"><use href="#i-spark"/></svg><span>Dashboard</span></button>
+    <button class="tab" data-tab="speak"><svg class="ic"><use href="#i-send"/></svg><span>Speak</span></button>
     <button class="tab" data-tab="live"><svg class="ic"><use href="#i-bolt"/></svg><span>Live</span></button>
     <button class="tab" data-tab="board"><svg class="ic"><use href="#i-trophy"/></svg><span>Leaderboard</span></button>
+    <button class="tab" data-tab="profile"><svg class="ic"><use href="#i-user"/></svg><span>Profile</span></button>
   </nav>
   <div class="you" id="you">…</div>
 </header>
@@ -89,6 +91,12 @@
         <div class="mode-title">Review</div>
         <div class="mode-desc">Re-practice the questions you got wrong (spaced repetition)</div>
         <div class="mode-meta"><span id="review-count">0 due</span><span class="go">Start →</span></div>
+      </button>
+      <button class="mode-card c-routine" data-mode="routine">
+        <div class="mode-emoji">🎯</div>
+        <div class="mode-title">Daily Plan</div>
+        <div class="mode-desc">Today's 15-minute routine: vocab → grammar → listen → speak → review</div>
+        <div class="mode-meta"><span>~15 min</span><span class="go">Start →</span></div>
       </button>
     </div>
     <div id="game" class="game hidden">
@@ -162,14 +170,82 @@
     </div>
   </section>
 
+  <!-- ================= SPEAK ================= -->
+  <section id="view-speak" class="view">
+    <div class="speak-tabs">
+      <button class="stab active" data-st="listen">🎧 Listen</button>
+      <button class="stab" data-st="speak">🎙️ Speak</button>
+      <button class="stab" data-st="talk">💬 Talk</button>
+    </div>
+
+    <!-- listening: dictation + fill-the-gap -->
+    <div id="st-listen" class="st-panel">
+      <div class="st-head">
+        <h2>🎧 Listening Practice</h2>
+        <div class="st-controls">
+          <select id="listen-level"><option>A1</option><option>A2</option><option>B1</option><option>B2</option></select>
+          <select id="listen-mode">
+            <option value="dict">Dictation — type what you hear</option>
+            <option value="gap">Fill the gap — type the missing word</option>
+          </select>
+        </div>
+      </div>
+      <div class="listen-card">
+        <button id="btn-play" class="btn primary">🔊 Play</button>
+        <div id="listen-sentence" class="listen-sentence">Press play and type what you hear.</div>
+        <input id="listen-input" type="text" autocomplete="off" placeholder="Type here…">
+        <div class="builder-actions">
+          <button id="btn-listen-check" class="btn primary" disabled>Check ✓</button>
+          <button id="btn-listen-skip" class="btn ghost">Skip →</button>
+        </div>
+        <div id="listen-result" class="listen-result"></div>
+      </div>
+    </div>
+
+    <!-- speaking: read aloud -->
+    <div id="st-speak" class="st-panel hidden">
+      <div class="st-head"><h2>🎙️ Read Aloud</h2><select id="speak-level"><option>A1</option><option>A2</option><option>B1</option><option>B2</option></select></div>
+      <div class="listen-card">
+        <div id="speak-sentence" class="listen-sentence big">—</div>
+        <div class="builder-actions">
+          <button id="btn-speak-mic" class="btn primary">🎤 Tap & Speak</button>
+          <button id="btn-speak-replay" class="btn ghost">🔊 Replay</button>
+          <button id="btn-speak-skip" class="btn ghost">Next →</button>
+        </div>
+        <div id="speak-status" class="speak-status">Tap the mic and read the sentence aloud.</div>
+        <div id="speak-result" class="speak-result hidden"></div>
+      </div>
+    </div>
+
+    <!-- conversation simulation -->
+    <div id="st-talk" class="st-panel hidden">
+      <div class="st-head"><h2>💬 Conversation Practice</h2></div>
+      <div id="talk-picker" class="talk-picker">
+        <button class="talk-scen" data-s="restaurant">🍽️ At the Restaurant</button>
+        <button class="talk-scen" data-s="interview">👔 Job Interview</button>
+        <button class="talk-scen" data-s="travel">✈️ At the Airport</button>
+      </div>
+      <div id="talk-chat" class="talk-chat hidden">
+        <div id="talk-lines" class="talk-lines"></div>
+        <div id="talk-opts" class="talk-opts"></div>
+        <div id="talk-end" class="talk-end hidden"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ================= LIVE ================= -->
   <section id="view-live" class="view">
     <div class="live-hero">
       <div class="live-pill"><span class="dot"></span> LIVE</div>
       <h2>Learners around the world right now</h2>
       <div class="online-count"><span id="online-num">0</span> online</div>
+      <div class="live-toggle">
+        <button id="btn-feed" class="btn ghost active">Live feed</button>
+        <button id="btn-board2" class="btn ghost">Leaderboard</button>
+      </div>
     </div>
     <div class="feed" id="feed"><div class="empty">Activity will appear here in real time.</div></div>
+    <div id="board-inline" class="board-list hidden"><div class="empty">Be the first to finish a set!</div></div>
   </section>
 
   <!-- ================= LEADERBOARD ================= -->
@@ -177,7 +253,63 @@
     <div class="board-hero">🏆 <h2>Top learners this session</h2></div>
     <div id="board-list" class="board-list"><div class="empty">Be the first to finish a set!</div></div>
   </section>
+
+  <!-- ================= PROFILE ================= -->
+  <section id="view-profile" class="view">
+    <div class="prof-top">
+      <div class="level-card" id="level-card">
+        <div class="level-badge" id="level-badge">—</div>
+        <div class="level-info">
+          <div class="level-title" id="level-title">No level yet</div>
+          <div class="level-sub" id="level-sub">Take the placement test to find your English level.</div>
+          <button id="btn-placement" class="btn primary">🎯 Take placement test</button>
+        </div>
+      </div>
+      <div class="xp-card">
+        <div class="xp-num">Lv <span id="xp-level">1</span></div>
+        <div class="xp-bar"><div id="xp-bar-fill" class="xp-bar-fill" style="width:0%"></div></div>
+        <div class="xp-sub"><span id="xp-now">0</span> / <span id="xp-next">150</span> XP</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>🧠 Skill Levels <span class="week-xp" id="prof-path"></span></h3>
+      <div id="skill-bars"><div class="empty">Take the placement test to see your skill breakdown.</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>🎯 Today's Missions</h3>
+      <div id="mission-list" class="mission-list"></div>
+    </div>
+
+    <div class="dash-cols">
+      <div class="panel">
+        <h3>📚 My Words <span id="words-count" class="week-xp"></span></h3>
+        <div id="words-list" class="words-list"><div class="empty">Answer vocabulary questions to build your collection.</div></div>
+        <button id="btn-flashcards" class="btn primary" disabled>🃏 Flashcards</button>
+      </div>
+      <div class="panel">
+        <h3>📈 Accuracy (7 days)</h3>
+        <div id="acc-chart" class="acc-chart"><div class="empty">More data coming as you practice.</div></div>
+        <div class="panel-tip"><b>Tip:</b> miss a word and it lands in <b>My Words → struggle words</b> and your Review queue — LingoFlow builds practice around your mistakes automatically.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>🏅 Achievements</h3>
+      <div id="badge-grid2" class="badge-grid"><div class="empty">Complete questions to unlock badges.</div></div>
+    </div>
+  </section>
 </main>
+
+<!-- mobile bottom navigation -->
+<nav class="bottomnav">
+  <button class="bnav active" data-tab="dash">🏠<span>Home</span></button>
+  <button class="bnav" data-tab="learn">📚<span>Learn</span></button>
+  <button class="bnav" data-tab="speak">🎙️<span>Speak</span></button>
+  <button class="bnav" data-tab="profile">👤<span>Profile</span></button>
+  <button class="bnav" data-tab="live">⚡<span>Live</span></button>
+</nav>
 
 <footer>LingoFlow · practice a little every day 🌱</footer>
 
@@ -192,6 +324,40 @@
 </template>
 
 <div id="toast" class="toast hidden"></div>
+
+<!-- placement test modal -->
+<div id="placement-modal" class="modal hidden">
+  <div class="modal-card">
+    <div id="pl-intro">
+      <div class="pl-emoji">🎯</div>
+      <h2>Find your English level</h2>
+      <p>Answer a few quick questions and we'll place you on the CEFR scale (A1 Beginner → C2 Mastery). Your questions and lessons will then match your level.</p>
+      <div class="fb-actions">
+        <button id="btn-pl-start" class="btn primary">Start test</button>
+        <button id="btn-pl-skip" class="btn ghost">Skip for now</button>
+      </div>
+    </div>
+    <div id="pl-q" class="hidden"></div>
+    <div id="pl-result" class="hidden"></div>
+  </div>
+</div>
+
+<!-- flashcard modal -->
+<div id="flash-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="st-head"><h2>🃏 Flashcards <span id="fc-count"></span></h2></div>
+    <div id="fc-card" class="fc-card" onclick="window._fcFlip && window._fcFlip()">
+      <div id="fc-front" class="fc-face">—</div>
+      <div id="fc-back" class="fc-face hidden">—</div>
+    </div>
+    <div class="fb-actions">
+      <button id="btn-fc-prev" class="btn ghost">← Prev</button>
+      <button id="btn-fc-flip" class="btn primary">Flip</button>
+      <button id="btn-fc-next" class="btn ghost">Next →</button>
+      <button id="btn-fc-close" class="btn ghost">Close</button>
+    </div>
+  </div>
+</div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>

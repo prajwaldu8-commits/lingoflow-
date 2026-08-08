@@ -470,12 +470,19 @@ function genConj(seen) {
   return null;
 }
 
-function genGrammarHand(seen) {
+function genGrammarHand(seen, lvl) {
   for (let t = 0; t < grammar.length; t++) {
     const i = rand(grammar.length);
     const id = `g:${i}`;
     if (seen.has(id)) continue;
     const g = grammar[i];
+    if (lvl) {
+      const L = LVL_ORDER.indexOf(lvl);
+      const gL = LVL_ORDER.indexOf(grammarLevel(g));
+      // for low levels, avoid far-too-advanced items
+      if (L <= 1 && gL > 3) continue; // A1/A2: skip C1+
+      if (L <= 2 && gL > 4) continue; // B1: skip C1/C2
+    }
     const options = shuffle(g.options);
     return {
       id, mode: 'grammar', type: 'mcq',
@@ -662,15 +669,17 @@ const sentences = [
   ['Practice', 'makes', 'perfect']
 ];
 
-function genBuilderProc(seen) {
+function genBuilderProc(seen, lvl) {
+  const verbPool = Object.keys(BUILDER_VERBS);
   for (let t = 0; t < 200; t++) {
-    const v = pick(Object.keys(BUILDER_VERBS));
+    const v = pick(verbPool);
     const S = pick(BUILDER_SUBJECTS);
     const rest = pick(BUILDER_VERBS[v]);
     const pat = pick(BUILDER_PATTERNS);
+    const answer = pat.build(S, VERB_FORMS[v], rest);
+    if (lvl && LVL_ORDER.indexOf(lvl) <= 1 && answer.length > 9) continue; // A1/A2: shorter sentences
     const id = `bs:${v}:${pat.name}:${S.s}:${rest.join('-')}`;
     if (seen.has(id)) continue;
-    const answer = pat.build(S, VERB_FORMS[v], rest);
     let options = shuffle(answer);
     let guard = 0;
     while (options.join(' ') === answer.join(' ') && guard++ < 10) options = shuffle(answer);
@@ -683,12 +692,21 @@ function genBuilderProc(seen) {
   return null;
 }
 
-function genBuilderHand(seen) {
-  for (let t = 0; t < sentences.length * 2; t++) {
-    const i = rand(sentences.length);
-    const id = `b:${i}`;
+function genBuilderHand(seen, lvl) {
+  let pool = sentences.map((s, i) => ({ s, i }));
+  if (lvl) {
+    const L = LVL_ORDER.indexOf(lvl);
+    pool = pool.filter(x => {
+      const b = LVL_ORDER.indexOf(builderLevel(x.s));
+      return b <= Math.min(L + 1, 3);
+    });
+    if (!pool.length) pool = sentences.map((s, i) => ({ s, i }));
+  }
+  for (let t = 0; t < pool.length * 2; t++) {
+    const x = pool[rand(pool.length)];
+    const id = `b:${x.i}`;
     if (seen.has(id)) continue;
-    const chunks = sentences[i];
+    const chunks = x.s;
     let options = shuffle(chunks);
     let guard = 0;
     while (options.join(' ') === chunks.join(' ') && guard++ < 10) options = shuffle(chunks);
@@ -907,13 +925,20 @@ function mcq(prompt, correct, distractors, explain, points) {
 
 const VOCAB_TYPES = ['syn', 'ant', 'def', 'fill'];
 
-function genVocab(seen) {
+function genVocab(seen, lvl) {
+  let pool = vocabulary;
+  if (lvl) {
+    const L = LVL_ORDER.indexOf(lvl);
+    const ok = new Set([LVL_ORDER[Math.max(0, L - 1)], lvl, LVL_ORDER[Math.min(LVL_ORDER.length - 1, L + 1)]]);
+    pool = vocabulary.filter(w => ok.has(wordLevel(w)));
+    if (!pool.length) pool = vocabulary;
+  }
   for (let t = 0; t < 120; t++) {
-    const w = pick(vocabulary);
+    const w = pick(pool);
     const type = pick(VOCAB_TYPES);
     const id = `v:${w.word}:${type}`;
     if (seen.has(id)) continue;
-    const others = vocabulary.filter(o => o.word !== w.word);
+    const others = pool.filter(o => o.word !== w.word);
     let q;
     if (type === 'syn') {
       q = mcq(`Which word is closest in meaning to “${w.word}”?`, w.syn[0],
@@ -939,13 +964,13 @@ function genVocab(seen) {
   return null;
 }
 
-function genGrammar(seen) {
+function genGrammar(seen, lvl) {
   for (let t = 0; t < 40; t++) {
     // procedural (endless pool) 75% of the time, handcrafted otherwise
-    const q = Math.random() < 0.75 ? genConj(seen) : genGrammarHand(seen);
+    const q = Math.random() < 0.75 ? genConj(seen) : genGrammarHand(seen, lvl);
     if (q) return q;
   }
-  return genGrammarHand(seen) || genConj(seen);
+  return genGrammarHand(seen, lvl) || genConj(seen);
 }
 
 function genIdiom(seen) {
@@ -971,10 +996,13 @@ function genIdiom(seen) {
   return null;
 }
 
-function genReading(seen) {
+function genReading(seen, lvl) {
+  let pool = passages.map((p, i) => ({ p, i }));
+  if (lvl && LVL_ORDER.indexOf(lvl) <= 1) pool = pool.filter(x => x.i < 9); // A1/A2: easier passages
+  if (!pool.length) pool = passages.map((p, i) => ({ p, i }));
   for (let t = 0; t < passages.length * 4; t++) {
-    const pi = rand(passages.length);
-    const p = passages[pi];
+    const pi = rand(pool.length);
+    const p = pool[pi].p;
     const qi = rand(p.questions.length);
     const id = `r:${pi}:${qi}`;
     if (seen.has(id)) continue;
@@ -990,23 +1018,23 @@ function genReading(seen) {
   return null;
 }
 
-function genBuilder(seen) {
+function genBuilder(seen, lvl) {
   for (let t = 0; t < 40; t++) {
-    const q = Math.random() < 0.75 ? genBuilderProc(seen) : genBuilderHand(seen);
+    const q = Math.random() < 0.75 ? genBuilderProc(seen, lvl) : genBuilderHand(seen, lvl);
     if (q) return q;
   }
-  return genBuilderProc(seen) || genBuilderHand(seen);
+  return genBuilderProc(seen, lvl) || genBuilderHand(seen, lvl);
 }
 
-/** Main entry: a fresh question for `mode`, avoiding `seenIds`. */
-function genQuestion(mode, seenIds) {
+/** Main entry: a fresh question for `mode`, avoiding `seenIds`, filtered by CEFR `lvl`. */
+function genQuestion(mode, seenIds, lvl) {
   const seen = new Set(seenIds || []);
   switch (mode) {
-    case 'vocab': return genVocab(seen);
-    case 'grammar': return genGrammar(seen);
+    case 'vocab': return genVocab(seen, lvl);
+    case 'grammar': return genGrammar(seen, lvl);
     case 'idiom': return genIdiom(seen);
-    case 'reading': return genReading(seen);
-    case 'builder': return genBuilder(seen);
+    case 'reading': return genReading(seen, lvl);
+    case 'builder': return genBuilder(seen, lvl);
     default: return null;
   }
 }
@@ -1271,9 +1299,74 @@ function genDaily(dateKey) {
   return qs;
 }
 
+/* ============ CEFR levels & placement ============ */
+const LVL_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
+function wordLevel(w) {
+  const i = WORDS.findIndex(x => x[0] === w.word);
+  if (i < 0) return 'B1';
+  if (i < 20) return 'A2';
+  if (i < 68) return 'B1';
+  if (i < 130) return 'B2';
+  return 'C1';
+}
+function grammarLevel(g) {
+  const q = g.q;
+  if (/scarcely|not only|no sooner|had I|hardly had/.test(q)) return 'C1';
+  if (/wish|would have|had studied|whose|used to|would rather|no use|made to|is made/.test(q)) return 'B2';
+  if (/by the time|has lived|have lost|since 2010|if it rains|will cancel|if I were|was approved|is spoken|asked me where|said that|first conditional/.test(q)) return 'B1';
+  if (/every day|now|last night|yesterday|is doing|watched|goes/.test(q)) return 'A2';
+  return 'A1';
+}
+function builderLevel(chunks) { return chunks.length <= 6 ? 'A1' : chunks.length <= 9 ? 'A2' : 'B1'; }
+function readingLevel(i) { return i < 9 ? 'A2' : 'B1'; }
+
+/** Placement test: 10 questions spanning A1–C1, each tagged with a level. */
+function genPlacement(seed) {
+  const rng = mulberry32(hashStr('lf-placement-' + (seed || 'x')));
+  const qs = [];
+  const gByBand = b => grammar.map((g, i) => ({ g, i })).filter(x => grammarLevel(x.g) === b).map(x => x.i);
+  for (const b of ['A1', 'A2', 'B1', 'B2']) {
+    const pool = gByBand(b);
+    if (!pool.length) continue;
+    const i = pool[Math.floor(rng() * pool.length)];
+    const g = grammar[i];
+    const options = seededShuffle(g.options, rng);
+    qs.push({ id: `g:${i}`, mode: 'grammar', type: 'mcq', prompt: g.q, options, answer: options.indexOf(g.answer), explain: g.explain, points: 10, lvl: b });
+  }
+  const tiers = [['A2', 0, 20], ['B1', 20, 68], ['B2', 68, 130], ['C1', 130, WORDS.length]];
+  const types = ['syn', 'ant', 'def', 'fill'];
+  for (const [lvl, lo, hi] of tiers) {
+    const pool = WORDS.map((x, i) => i).filter(i => i >= lo && i < hi);
+    if (!pool.length) continue;
+    const w = vocabulary[pool[Math.floor(rng() * pool.length)]];
+    const q = vocabQuestion(w, types[Math.floor(rng() * types.length)]);
+    qs.push({ ...q, lvl });
+  }
+  const rIdx = seededShuffle(passages.map((_, i) => i), rng).slice(0, 2);
+  for (const ri of rIdx) {
+    const p = passages[ri];
+    const qi = Math.floor(rng() * p.questions.length);
+    const q = readingQuestion(p, p.questions[qi]);
+    qs.push({ ...q, id: `r:${ri}:${qi}`, lvl: readingLevel(ri) });
+  }
+  const bIdx = seededShuffle(sentences.map((_, i) => i), rng);
+  const picks = [bIdx.find(i => sentences[i].length <= 6), bIdx.find(i => sentences[i].length >= 7)];
+  for (const bi of picks) {
+    if (bi === undefined) continue;
+    const chunks = sentences[bi];
+    let options = seededShuffle(chunks, rng);
+    let guard = 0;
+    while (options.join(' ') === chunks.join(' ') && guard++ < 5) options = seededShuffle(chunks, rng);
+    qs.push({ id: `b:${bi}`, mode: 'builder', type: 'builder', prompt: 'Tap the words in the correct order to build the sentence.', chunks: options, answer: chunks, points: 20, lvl: builderLevel(chunks) });
+  }
+  return qs;
+}
+
 module.exports = {
   vocabulary, grammar, idioms, sentences, passages,
-  VERB_FORMS, genQuestion, genById, genSimilar, genDaily,
+  VERB_FORMS, genQuestion, genById, genSimilar, genDaily, genPlacement,
+  wordLevel, grammarLevel, builderLevel, readingLevel,
   counts: {
     vocab: vocabulary.length * 4,
     grammar: grammar.length + Object.keys(VERB_FORMS).length * CONJ_PATTERNS.length * SUBJECTS.length,

@@ -34,8 +34,10 @@ app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }
 // Fresh question for a mode. `seen` = comma-separated question ids already
 // shown this session, so a finished question is always replaced by a new one.
 // `due` = ids due for spaced repetition; those get priority (adaptive review).
+// `level` = CEFR level (A1..C2) — content is filtered to the learner's level.
 app.get('/api/question', (req, res) => {
   const mode = req.query.mode || 'vocab';
+  const level = String(req.query.level || '').toUpperCase();
   const seen = String(req.query.seen || '').split(',').filter(Boolean);
   const seenSet = new Set(seen);
 
@@ -48,8 +50,20 @@ app.get('/api/question', (req, res) => {
       if (q) return res.json({ ok: true, question: q, fromDue: true });
     }
   }
-  const q = bank.genQuestion(mode, seen);
+  const q = bank.genQuestion(mode, seen, level);
   res.json(q ? { ok: true, question: q } : { ok: false });
+});
+
+// Placement test: 10 questions spanning A1–C1, each tagged with a CEFR level
+app.get('/api/placement', (req, res) => {
+  res.json({ ok: true, questions: bank.genPlacement(String(req.query.seed || '')) });
+});
+
+// Word details for the vocabulary system / flashcards
+app.get('/api/wordinfo', (req, res) => {
+  const w = bank.vocabulary.find(x => x.word === String(req.query.w || ''));
+  if (!w) return res.json({ ok: false });
+  res.json({ ok: true, word: w.word, def: w.def, syn: w.syn, ant: w.ant, ex: w.ex, lvl: bank.wordLevel(w) });
 });
 
 // A similar question drilling the same skill (for "try another one")
