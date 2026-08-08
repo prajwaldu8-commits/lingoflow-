@@ -1,0 +1,55 @@
+# 💬 LingoFlow — Real-time English Learning
+
+Learn English with endless, never-repeating exercises, live updates from other learners, and instant feedback.
+
+## Run it
+
+```bash
+cd english-learn
+npm install
+npm start        # → http://localhost:3000
+```
+
+## Deploy it (free, permanent link)
+
+The project includes a **Render Blueprint** (`render.yaml`), so deployment is nearly automatic:
+
+1. **GitHub** — create a free account at github.com → **+ → New repository** (public) → **"uploading an existing file"** → drag in the files from `lingoflow-deploy.zip` (unzipped).
+2. **Render** — create a free account at render.com (sign in with your GitHub).
+3. Click **New → Blueprint** and select your repo — Render detects `render.yaml` and provisions the site automatically.
+4. In ~2–3 minutes you get your permanent link: **`https://lingoflow.onrender.com`** (or similar). Live feed, leaderboard, and endless questions all work exactly like the local version.
+
+> Free-tier note: Render's free web service **sleeps after 15 minutes of inactivity**; the first request after that takes ~30–50 s to wake it. That's normal — subsequent requests are fast.
+
+## Endless content (~52,000 unique questions)
+
+The site combines **handcrafted content** with **procedural generators** — every question is picked fresh, never repeats within a session, and if you ever complete a full library round the pool auto-refreshes and keeps going.
+
+| Mode | Pool | Unique questions (measured) |
+|---|---|---|
+| 📚 Vocabulary | 176 words × 4 types (synonym / antonym / definition / fill-in-the-blank) | ~700 |
+| 🧩 Grammar | 80 handcrafted items + 121 verbs × 8 conjugation patterns × 13 subjects × tails (tenses, negatives, questions) | ~48,800 |
+| 🗣️ Idioms & Phrases | 108 idioms × 2 types (meaning / fill-in-the-blank) | ~220 |
+| 🧱 Sentence Builder | 15 verbs × 3 patterns × 11 subjects × continuations + 20 classic sentences | ~2,100 |
+| 📖 Reading | 18 passages × 3 comprehension questions | ~55 |
+
+## Real-time features
+
+- **Fresh question every time** — the server picks an unseen question for your session; finish one and the next is automatically new (`/api/question?seen=...`).
+- **Auto-refresh** — complete a mode's entire library and the site resets the pool automatically; it never dead-ends.
+- **Live feed** — everyone's completed sets appear instantly (Socket.io), with anonymous learner names like *Swift Learner 482*.
+- **Live leaderboard** — sorted by XP, updates in real time as people finish sets.
+- **Online counter** — number of learners connected right now.
+- **Anonymous & zero sign-up** — every visitor automatically gets a name.
+
+## Files
+
+```
+english-learn/
+├── server.js          # Express + Socket.io server, /api endpoints
+├── data/bank.js       # handcrafted content + procedural generators
+└── public/
+    ├── index.html     # SPA shell (4 views)
+    ├── styles.css     # responsive styling
+    └── app.js         # game flow, dashboard, live feed client
+```
