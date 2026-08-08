@@ -60,3 +60,14 @@ english-learn/
     ├── styles.css     # responsive styling
     └── app.js         # game flow, dashboard, live feed client
 ```
+
+## v3 — Zero-to-advanced platform
+
+- **CEFR levels (A1–C2)** — placement test (12 questions spanning A1–C1) assigns your level; all content is then filtered to your level (±1 band).
+- **🎧 Listening** — dictation & fill-the-gap with text-to-speech (browser built-in, no APIs).
+- **🎙️ Speaking** — read-aloud with speech recognition, pronunciation score, highlighted difficult words (Chrome/Android).
+- **💬 Conversation practice** — scripted scenarios (restaurant, job interview, airport) with choice-based feedback.
+- **📚 Vocabulary system** — every vocab question feeds "My Words"; flashcards, struggle-word tracking.
+- **🎯 Daily Plan** — 15-minute routine: vocab → grammar → listen → speak → review.
+- **Missions, XP levels, accuracy chart, profile view** — plus mobile bottom navigation (Home | Learn | Speak | Profile | Live).
+- **PWA** — installable (Add to Home Screen), offline app shell.
