@@ -17,6 +17,15 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // Health check — used by Render / uptime monitors
 app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
@@ -24,11 +33,55 @@ app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }
 
 // Fresh question for a mode. `seen` = comma-separated question ids already
 // shown this session, so a finished question is always replaced by a new one.
+// `due` = ids due for spaced repetition; those get priority (adaptive review).
 app.get('/api/question', (req, res) => {
   const mode = req.query.mode || 'vocab';
   const seen = String(req.query.seen || '').split(',').filter(Boolean);
+  const seenSet = new Set(seen);
+
+  const due = String(req.query.due || '').split(',').filter(Boolean);
+  if (due.length) {
+    // review queue first: regenerate the exact missed question
+    for (const id of shuffle(due)) {
+      if (seenSet.has(id)) continue;
+      const q = bank.genById(id);
+      if (q) return res.json({ ok: true, question: q, fromDue: true });
+    }
+  }
   const q = bank.genQuestion(mode, seen);
   res.json(q ? { ok: true, question: q } : { ok: false });
+});
+
+// A similar question drilling the same skill (for "try another one")
+app.get('/api/similar', (req, res) => {
+  const id = String(req.query.id || '');
+  const seen = String(req.query.seen || '').split(',').filter(Boolean);
+  const q = id ? bank.genSimilar(id, seen) : null;
+  res.json(q ? { ok: true, question: q } : { ok: false });
+});
+
+// Daily challenge: deterministic 10 questions, same for everyone, per UTC date
+const dailyScores = new Map(); // dateKey -> [{name, score, total, timeMs, ts}]
+app.get('/api/daily', (req, res) => {
+  const dateKey = new Date().toISOString().slice(0, 10);
+  res.json({
+    ok: true,
+    date: dateKey,
+    durationSec: 300,
+    questions: bank.genDaily(dateKey)
+  });
+});
+app.post('/api/daily/score', (req, res) => {
+  const dateKey = new Date().toISOString().slice(0, 10);
+  const { score = 0, total = 0, timeMs = 0, name = 'Anonymous' } = req.body || {};
+  const list = dailyScores.get(dateKey) || [];
+  list.push({ name: String(name).slice(0, 30), score: Number(score) || 0, total: Number(total) || 0, timeMs: Number(timeMs) || 0, ts: Date.now() });
+  if (list.length > 500) list.shift();
+  dailyScores.set(dateKey, list);
+  // rank: higher score first, then faster time
+  const sorted = [...list].sort((a, b) => (b.score - a.score) || (a.timeMs - b.timeMs));
+  const rank = sorted.findIndex(x => x.ts === list[list.length - 1].ts) + 1;
+  res.json({ ok: true, rank, total: list.length, date: dateKey });
 });
 
 // Word of the day (stable per calendar day)

@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LingoFlow — Learn English Live</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -45,45 +48,70 @@
         <div class="mode-title">Vocabulary</div>
         <div class="mode-desc">Synonyms, opposites, definitions & fill-in-the-blanks</div>
         <div class="mode-meta"><span>10 XP</span><span class="go">Start →</span></div>
+        <div class="mode-due hidden"></div>
       </button>
       <button class="mode-card c-grammar" data-mode="grammar">
         <div class="mode-emoji">🧩</div>
         <div class="mode-title">Grammar</div>
         <div class="mode-desc">Tenses, prepositions, articles & common mistakes</div>
         <div class="mode-meta"><span>10 XP</span><span class="go">Start →</span></div>
+        <div class="mode-due hidden"></div>
       </button>
       <button class="mode-card c-idiom" data-mode="idiom">
         <div class="mode-emoji">🗣️</div>
         <div class="mode-title">Idioms & Phrases</div>
         <div class="mode-desc">Everyday idioms with real-life examples</div>
         <div class="mode-meta"><span>10 XP</span><span class="go">Start →</span></div>
+        <div class="mode-due hidden"></div>
       </button>
       <button class="mode-card c-builder" data-mode="builder">
         <div class="mode-emoji">🧱</div>
         <div class="mode-title">Sentence Builder</div>
         <div class="mode-desc">Arrange jumbled words into correct sentences</div>
         <div class="mode-meta"><span>20 XP</span><span class="go">Start →</span></div>
+        <div class="mode-due hidden"></div>
       </button>
       <button class="mode-card c-reading" data-mode="reading">
         <div class="mode-emoji">📖</div>
         <div class="mode-title">Reading</div>
         <div class="mode-desc">Short passages with comprehension questions</div>
         <div class="mode-meta"><span>15 XP</span><span class="go">Start →</span></div>
+        <div class="mode-due hidden"></div>
+      </button>
+      <button class="mode-card c-daily" data-mode="daily">
+        <div class="mode-emoji">🔥</div>
+        <div class="mode-title">Daily Challenge</div>
+        <div class="mode-desc">10 questions · 5 minutes · same challenge for everyone, global rank</div>
+        <div class="mode-meta"><span>10 XP each</span><span class="go">Start →</span></div>
+      </button>
+      <button class="mode-card c-review" data-mode="review">
+        <div class="mode-emoji">🔁</div>
+        <div class="mode-title">Review</div>
+        <div class="mode-desc">Re-practice the questions you got wrong (spaced repetition)</div>
+        <div class="mode-meta"><span id="review-count">0 due</span><span class="go">Start →</span></div>
       </button>
     </div>
     <div id="game" class="game hidden">
       <div class="game-head">
         <button id="btn-exit" class="btn ghost">← Modes</button>
         <div class="game-title"><span id="game-mode-label">Vocabulary</span></div>
-        <div class="game-score">⭐ <span id="score-val">0</span> XP</div>
+        <div class="game-right">
+          <div id="game-timer" class="game-timer hidden"></div>
+          <div class="game-score">⭐ <span id="score-val">0</span> XP</div>
+        </div>
       </div>
       <div class="progress"><div id="progress-bar" class="progress-bar"></div></div>
       <div id="question" class="question"></div>
       <div id="feedback" class="feedback hidden">
         <div id="fb-emoji" class="fb-emoji">🎉</div>
         <div id="fb-title" class="fb-title">Correct!</div>
+        <div id="fb-yours" class="fb-line bad hidden"></div>
+        <div id="fb-correct" class="fb-line good hidden"></div>
         <div id="fb-text" class="fb-text"></div>
-        <button id="btn-next" class="btn primary">Next question →</button>
+        <div class="fb-actions">
+          <button id="btn-similar" class="btn ghost hidden">🔁 Try another one</button>
+          <button id="btn-next" class="btn primary">Next question →</button>
+        </div>
       </div>
     </div>
   </section>
@@ -92,9 +120,21 @@
   <section id="view-dash" class="view">
     <div class="stats-grid">
       <div class="stat-card"><div class="stat-emoji">🏆</div><div class="stat-num" id="stat-xp">0</div><div class="stat-label">Total XP</div></div>
-      <div class="stat-card"><div class="stat-emoji">✅</div><div class="stat-num" id="stat-correct">0</div><div class="stat-label">Correct answers</div></div>
+      <div class="stat-card"><div class="stat-emoji">✅</div><div class="stat-num" id="stat-correct">0</div><div class="stat-label">Questions</div></div>
       <div class="stat-card"><div class="stat-emoji">🎯</div><div class="stat-num" id="stat-acc">—</div><div class="stat-label">Accuracy</div></div>
-      <div class="stat-card"><div class="stat-emoji">📈</div><div class="stat-num" id="stat-streak">0</div><div class="stat-label">Best streak</div></div>
+      <div class="stat-card"><div class="stat-emoji">🔥</div><div class="stat-num" id="stat-streak">0</div><div class="stat-label">Day streak</div></div>
+      <div class="stat-card"><div class="stat-emoji">⏱️</div><div class="stat-num" id="stat-time">0m</div><div class="stat-label">Time learning</div></div>
+      <div class="stat-card"><div class="stat-emoji">💯</div><div class="stat-num" id="stat-perfect">0</div><div class="stat-label">Perfect sets</div></div>
+    </div>
+    <div class="dash-cols">
+      <div class="panel">
+        <h3>🧠 Your English Profile</h3>
+        <div id="profile-bars"><div class="empty">Answer some questions to build your profile.</div></div>
+      </div>
+      <div class="panel">
+        <h3>📅 Weekly Progress <span id="week-xp" class="week-xp"></span></h3>
+        <div id="weekly-chart" class="weekly-chart"><div class="empty">Your XP this week will appear here.</div></div>
+      </div>
     </div>
     <div class="dash-cols">
       <div class="panel">
@@ -105,9 +145,20 @@
         <h3>📅 Word of the day</h3>
         <div id="wotd"><div class="empty">Loading…</div></div>
         <div class="panel-tip">
-          <b>Tip:</b> every question you finish is instantly replaced by a fresh one. The pools are huge (14,000+ unique questions) and if you ever complete a full library round, it refreshes automatically — so the learning never runs out. Finish a set and watch the Live feed react in real time!
+          <b>Tip:</b> every question you finish is instantly replaced by a fresh one — the pools hold ~52,000 unique questions and auto-refresh, so the learning never runs out. Missed something? It lands in your <b>Review</b> queue and comes back tomorrow, then in 3 and 7 days until you master it.
         </div>
       </div>
+    </div>
+    <div class="panel review-panel">
+      <div>
+        <h3 style="margin:0 0 4px">🔁 Review Queue</h3>
+        <div id="review-info" class="review-info">No questions due right now. Miss some questions and they'll show up here for spaced repetition.</div>
+      </div>
+      <button id="btn-review" class="btn primary" disabled>Start review</button>
+    </div>
+    <div class="panel">
+      <h3>🏅 Achievements</h3>
+      <div id="badge-grid" class="badge-grid"><div class="empty">Complete questions to unlock badges.</div></div>
     </div>
   </section>
 

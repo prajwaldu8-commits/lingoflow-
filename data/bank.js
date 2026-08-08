@@ -432,9 +432,9 @@ const CONJ_PATTERNS = [
   }
 ];
 
-/* pattern 6 needs a base-sentence reference; build it simply. */
+/* pattern 6 needs a base-sentence reference; build it deterministically. */
 function negRef(S, V) {
-  return `${cap(S.s)} ${S.sg3 ? VERB_FORMS[V].s : VERB_FORMS[V].base} ${pick(['every day', 'after school', 'on weekends', 'in the morning'])}`;
+  return `${cap(S.s)} ${S.sg3 ? VERB_FORMS[V].s : VERB_FORMS[V].base} ${negTail(S, V)}`;
 }
 
 /* Stative verbs never take continuous forms (patterns 3 & 8). */
@@ -446,7 +446,7 @@ function genConj(seen) {
     const p = pick(CONJ_PATTERNS);
     if ((p.name === 3 || p.name === 8) && STATIVE.has(vBase)) continue; // no continuous with stative verbs
     const S = pick(SUBJECTS);
-    const tail = p.tail.length ? pick(p.tail) : '';
+    const tail = (p.name === 6) ? '' : (p.tail.length ? pick(p.tail) : '');
     const id = `c:${vBase}:${p.name}:${S.s}:${tail}`;
     if (seen.has(id)) continue;
     const F = VERB_FORMS[vBase];
@@ -1011,9 +1011,269 @@ function genQuestion(mode, seenIds) {
   }
 }
 
+/* ================= Adaptive engine: byId / similar / daily ================= */
+/* Question ids encode their own parameters (e.g. "v:grasp:fill",
+   "c:break:6:my friends:"), so any question can be regenerated on demand —
+   this powers spaced repetition and "try another one". */
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hashStr(s) {
+  let h = 1779033703 ^ s.length;
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return h >>> 0;
+}
+function seededShuffle(arr, rng) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/* deterministic tail for negative-form questions (pattern 6) */
+function negTail(S, V) {
+  const TAILS = ['every day', 'after school', 'on weekends', 'in the morning'];
+  return TAILS[hashStr(S.s + '|' + V) % TAILS.length];
+}
+
+function vocabQuestion(w, type) {
+  const others = vocabulary.filter(o => o.word !== w.word);
+  let q;
+  if (type === 'syn') {
+    q = mcq(`Which word is closest in meaning to “${w.word}”?`, w.syn[0],
+      others.flatMap(o => o.syn),
+      `“${w.word}” means ${w.def}. A synonym is “${w.syn[0]}”.`, 10);
+  } else if (type === 'ant') {
+    q = mcq(`Which word is the opposite of “${w.word}”?`, w.ant[0],
+      others.flatMap(o => [o.ant[0], o.syn[0]]),
+      `“${w.word}” means ${w.def}, so “${w.ant[0]}” is its opposite.`, 10);
+  } else if (type === 'def') {
+    q = mcq(`What does “${w.word}” mean?`, w.def,
+      others.map(o => o.def),
+      `${w.def} — e.g., “${w.ex}”`, 10);
+  } else {
+    const re = new RegExp(`\\b${w.word}(ed|ing|s|es|d|led)?\\b`, 'i');
+    const sentence = w.ex.replace(re, '____');
+    q = mcq(`Choose the word that best completes the sentence: “${sentence}”`, w.word,
+      others.map(o => o.word),
+      `“${w.word}” means ${w.def} — e.g., “${w.ex}”`, 10);
+  }
+  return { id: `v:${w.word}:${type}`, mode: 'vocab', type: 'mcq', ...q };
+}
+
+function idiomQuestion(it, type) {
+  const others = idioms.filter(o => o.idiom !== it.idiom);
+  if (type === 'meaning') {
+    const q = mcq(`What does the idiom “${it.idiom}” mean?`, it.meaning,
+      others.map(o => o.meaning),
+      `“${it.idiom}” means ${it.meaning}. E.g., “${it.example}”`, 10);
+    return { id: `i:${it.idiom}:meaning`, mode: 'idiom', type: 'mcq', ...q };
+  }
+  const sentence = it.example.replace(it.idiom, '____');
+  const q = mcq(`Choose the idiom that best completes: “${sentence}”`, it.idiom,
+    others.map(o => o.idiom),
+    `“${it.idiom}” means ${it.meaning}. E.g., “${it.example}”`, 10);
+  return { id: `i:${it.idiom}:fill`, mode: 'idiom', type: 'mcq', ...q };
+}
+
+function readingQuestion(p, rq) {
+  const options = shuffle(rq.options);
+  return {
+    id: null, mode: 'reading', type: 'mcq',
+    passage: { title: p.title, text: p.text },
+    prompt: rq.q, options, answer: options.indexOf(rq.answer),
+    explain: rq.explain, points: 15
+  };
+}
+
+function buildConj(S, vBase, p, tail) {
+  const F = VERB_FORMS[vBase];
+  if (p.name === 6) {
+    const ref = `${cap(S.s)} ${S.sg3 ? F.s : F.base} ${negTail(S, vBase)}`;
+    const q = mcq(`Choose the negative form of: “${ref}.”`, p.correct(S, F),
+      p.distractors(S, F), p.explain(S, F), 10);
+    return { id: `c:${vBase}:6:${S.s}:`, mode: 'grammar', type: 'mcq', ...q };
+  }
+  if (p.name === 7) {
+    const ref = `${cap(S.s)} ${S.sg3 ? F.s : F.base} ${tail}.`;
+    const q = mcq(`Choose the correct question for: “${ref}”`, p.correct(S, F, tail),
+      p.distractors(S, F, tail), p.explain(S, F, tail), 10);
+    return { id: `c:${vBase}:7:${S.s}:${tail}`, mode: 'grammar', type: 'mcq', ...q };
+  }
+  const prompt = p.prompt(S, vBase, tail);
+  const q = mcq(prompt, p.correct(S, F), p.distractors(S, F), p.explain(S, F), 10);
+  return { id: `c:${vBase}:${p.name}:${S.s}:${tail}`, mode: 'grammar', type: 'mcq', ...q };
+}
+
+/** Reconstruct any question from its id. Returns null if unknown. */
+function genById(id) {
+  try {
+    if (id.startsWith('v:')) {
+      const parts = id.split(':');
+      const w = vocabulary.find(x => x.word === parts[1]);
+      return w ? vocabQuestion(w, parts[2]) : null;
+    }
+    if (id.startsWith('g:')) {
+      const i = Number(id.slice(2));
+      const g = grammar[i];
+      if (!g) return null;
+      const options = shuffle(g.options);
+      return { id, mode: 'grammar', type: 'mcq', prompt: g.q, options, answer: options.indexOf(g.answer), explain: g.explain, points: 10 };
+    }
+    if (id.startsWith('c:')) {
+      const parts = id.split(':');
+      const p = CONJ_PATTERNS.find(x => x.name === Number(parts[2]));
+      const S = SUBJECTS.find(x => x.s === parts[3]);
+      if (!p || !S || !VERB_FORMS[parts[1]]) return null;
+      return buildConj(S, parts[1], p, parts[4] || '');
+    }
+    if (id.startsWith('i:')) {
+      const parts = id.split(':');
+      const it = idioms.find(x => x.idiom === parts[1]);
+      return it ? idiomQuestion(it, parts[2]) : null;
+    }
+    if (id.startsWith('r:')) {
+      const parts = id.split(':');
+      const p = passages[Number(parts[1])];
+      const rq = p && p.questions[Number(parts[2])];
+      if (!rq) return null;
+      const q = readingQuestion(p, rq);
+      return { ...q, id };
+    }
+    if (id.startsWith('b:')) {
+      const i = Number(id.slice(2));
+      const chunks = sentences[i];
+      if (!chunks) return null;
+      let options = shuffle(chunks);
+      let guard = 0;
+      while (options.join(' ') === chunks.join(' ') && guard++ < 10) options = shuffle(chunks);
+      return { id, mode: 'builder', type: 'builder', prompt: 'Tap the words in the correct order to build the sentence.', chunks: options, answer: chunks, points: 20 };
+    }
+    if (id.startsWith('bs:')) {
+      const parts = id.split(':');
+      const pat = BUILDER_PATTERNS.find(x => x.name === parts[2]);
+      const S = BUILDER_SUBJECTS.find(x => x.s === parts[3]);
+      const rest = (parts[4] || '').split('-').filter(Boolean);
+      if (!pat || !S || !VERB_FORMS[parts[1]] || !rest.length) return null;
+      const answer = pat.build(S, VERB_FORMS[parts[1]], rest);
+      let options = shuffle(answer);
+      let guard = 0;
+      while (options.join(' ') === answer.join(' ') && guard++ < 10) options = shuffle(answer);
+      return { id, mode: 'builder', type: 'builder', prompt: 'Tap the words in the correct order to build the sentence.', chunks: options, answer, points: 20 };
+    }
+  } catch (e) { /* fall through */ }
+  return null;
+}
+
+/** A question that drills the same skill as `id` (used by "try another one"). */
+function genSimilar(id, seenArr) {
+  const seen = new Set(seenArr || []);
+  try {
+    if (id.startsWith('v:')) {
+      const parts = id.split(':');
+      const w = vocabulary.find(x => x.word === parts[1]);
+      if (w) {
+        for (const t of VOCAB_TYPES) {
+          if (t === parts[2]) continue;
+          const q = vocabQuestion(w, t);
+          if (q && !seen.has(q.id)) return q;
+        }
+        for (let i = 0; i < 40; i++) {
+          const w2 = pick(vocabulary);
+          if (w2.word === w.word) continue;
+          const q = vocabQuestion(w2, parts[2]);
+          if (q && !seen.has(q.id)) return q;
+        }
+      }
+      return genVocab(seen);
+    }
+    if (id.startsWith('c:')) {
+      const parts = id.split(':');
+      const p = CONJ_PATTERNS.find(x => x.name === Number(parts[2]));
+      if (p) {
+        for (let i = 0; i < 60; i++) {
+          const v2 = pick(Object.keys(VERB_FORMS));
+          const S2 = pick(SUBJECTS);
+          if ((p.name === 3 || p.name === 8) && STATIVE.has(v2)) continue;
+          const tail = p.tail.length ? pick(p.tail) : '';
+          const q = buildConj(S2, v2, p, tail);
+          if (q && !seen.has(q.id)) return q;
+        }
+      }
+      return genGrammar(seen);
+    }
+    if (id.startsWith('i:')) {
+      const parts = id.split(':');
+      const it = idioms.find(x => x.idiom === parts[1]);
+      if (it) {
+        const other = parts[2] === 'meaning' ? 'fill' : 'meaning';
+        const q = idiomQuestion(it, other);
+        if (q && !seen.has(q.id)) return q;
+      }
+      return genIdiom(seen);
+    }
+    if (id.startsWith('r:')) {
+      const parts = id.split(':');
+      const p = passages[Number(parts[1])];
+      if (p) {
+        for (let qi = 0; qi < p.questions.length; qi++) {
+          if (qi === Number(parts[2])) continue;
+          const q = readingQuestion(p, p.questions[qi]);
+          if (q && !seen.has(`r:${Number(parts[1])}:${qi}`)) return { ...q, id: `r:${Number(parts[1])}:${qi}` };
+        }
+      }
+      return genReading(seen);
+    }
+    if (id.startsWith('b:') || id.startsWith('bs:')) return genBuilder(seen);
+    if (id.startsWith('g:')) return genGrammarHand(seen);
+  } catch (e) { /* fall through */ }
+  return genQuestion('grammar', seenArr);
+}
+
+/** Deterministic 10-question challenge for a calendar date (same for everyone). */
+function genDaily(dateKey) {
+  const rng = mulberry32(hashStr('lingoflow-daily-' + dateKey));
+  const qs = [];
+  const gIdx = seededShuffle(grammar.map((_, i) => i), rng).slice(0, 4);
+  for (const i of gIdx) {
+    const g = grammar[i];
+    const options = seededShuffle(g.options, rng);
+    qs.push({ id: `g:${i}`, mode: 'grammar', type: 'mcq', prompt: g.q, options, answer: options.indexOf(g.answer), explain: g.explain, points: 10 });
+  }
+  const types = ['syn', 'ant', 'def', 'fill'];
+  const vIdx = seededShuffle(vocabulary.map((_, i) => i), rng).slice(0, 3);
+  for (const vi of vIdx) {
+    const q = vocabQuestion(vocabulary[vi], types[Math.floor(rng() * 4)]);
+    if (q) qs.push(q);
+  }
+  const iIdx = seededShuffle(idioms.map((_, i) => i), rng).slice(0, 2);
+  for (const ii of iIdx) {
+    const q = idiomQuestion(idioms[ii], rng() < 0.5 ? 'meaning' : 'fill');
+    if (q) qs.push(q);
+  }
+  const bi = Math.floor(rng() * sentences.length);
+  const chunks = sentences[bi];
+  let options = seededShuffle(chunks, rng);
+  let guard = 0;
+  while (options.join(' ') === chunks.join(' ') && guard++ < 5) options = seededShuffle(chunks, rng);
+  qs.push({ id: `b:${bi}`, mode: 'builder', type: 'builder', prompt: 'Tap the words in the correct order to build the sentence.', chunks: options, answer: chunks, points: 20 });
+  return qs;
+}
+
 module.exports = {
   vocabulary, grammar, idioms, sentences, passages,
-  VERB_FORMS, genQuestion,
+  VERB_FORMS, genQuestion, genById, genSimilar, genDaily,
   counts: {
     vocab: vocabulary.length * 4,
     grammar: grammar.length + Object.keys(VERB_FORMS).length * CONJ_PATTERNS.length * SUBJECTS.length,
