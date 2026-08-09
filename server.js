@@ -29,6 +29,10 @@ function shuffle(arr) {
 // Health check — used by Render / uptime monitors
 app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
+// App version — the client compares this to force-refresh stale cached versions
+const APP_VERSION = '4';
+app.get('/api/version', (req, res) => res.json({ v: APP_VERSION }));
+
 /* ---------------------------- REST API ---------------------------- */
 
 // Fresh question for a mode. `seen` = comma-separated question ids already

@@ -1595,6 +1595,20 @@
       if (card) { card.textContent = '🔁 ' + n + ' due'; card.classList.toggle('hidden', n === 0); }
     }
   }
+
+  /* ---------- auto-update: if the server is newer than this cached app, reload ---------- */
+  const APP_VERSION = '4';
+  (async () => {
+    try {
+      const r = await fetch('/api/version', { cache: 'no-store' });
+      const d = await r.json();
+      if (d.v && d.v !== APP_VERSION && !sessionStorage.getItem('lf-ver-reload')) {
+        sessionStorage.setItem('lf-ver-reload', '1');
+        location.reload();
+      }
+    } catch (e) { /* offline or error — keep current version */ }
+  })();
+
   if (!store.placement) {
     setTimeout(() => plModal.classList.remove('hidden'), 900);
   }
