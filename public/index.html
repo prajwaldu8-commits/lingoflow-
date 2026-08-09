@@ -98,6 +98,12 @@
         <div class="mode-desc">Today's 15-minute routine: vocab → grammar → listen → speak → review</div>
         <div class="mode-meta"><span>~15 min</span><span class="go">Start →</span></div>
       </button>
+      <button class="mode-card c-coach" data-mode="coach">
+        <div class="mode-emoji">🤖</div>
+        <div class="mode-title">AI Coach</div>
+        <div class="mode-desc">Personalized practice built from your mistakes & weak topics</div>
+        <div class="mode-meta"><span>Adaptive</span><span class="go">Start →</span></div>
+      </button>
     </div>
     <div id="game" class="game hidden">
       <div class="game-head">
@@ -231,6 +237,25 @@
         <div id="talk-end" class="talk-end hidden"></div>
       </div>
     </div>
+
+    <!-- AI chat: free typing with grammar feedback -->
+    <div id="st-chat" class="st-panel hidden">
+      <div class="st-head"><h2>🤖 Talk to your AI Tutor</h2></div>
+      <div id="chat-picker" class="talk-picker">
+        <button class="talk-scen" data-c="smalltalk">☕ Small Talk</button>
+        <button class="talk-scen" data-c="interview">👔 Interview Chat</button>
+        <button class="talk-scen" data-c="office">🏢 Office Chat</button>
+      </div>
+      <div id="chat-box" class="talk-chat hidden">
+        <div id="chat-lines" class="talk-lines"></div>
+        <div class="chat-input-row">
+          <input id="chat-input" type="text" placeholder="Type your reply… e.g. Hi! I am Ravi from Mysore" autocomplete="off">
+          <button id="btn-chat-send" class="btn primary">Send ➤</button>
+        </div>
+        <button id="btn-chat-end" class="btn ghost chat-end">End chat & get feedback</button>
+        <div id="chat-summary" class="chat-summary hidden"></div>
+      </div>
+    </div>
   </section>
 
   <!-- ================= LIVE ================= -->
@@ -275,6 +300,11 @@
     <div class="panel">
       <h3>🧠 Skill Levels <span class="week-xp" id="prof-path"></span></h3>
       <div id="skill-bars"><div class="empty">Take the placement test to see your skill breakdown.</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>🤖 AI Coach Report</h3>
+      <div id="coach-report" class="coach-report"><div class="empty">Answer some questions — your coach will analyze your weak topics automatically.</div></div>
     </div>
 
     <div class="panel">

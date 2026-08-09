@@ -10,7 +10,8 @@
     builder: { label: '🧱 Sentence Builder', setLen: 3 },
     reading: { label: '📖 Reading',         setLen: 3 },
     daily:   { label: '🔥 Daily Challenge',  setLen: 10 },
-    review:  { label: '🔁 Review',           setLen: 5 }
+    review:  { label: '🔁 Review',           setLen: 5 },
+    coach:   { label: '🤖 AI Coach',         setLen: 6 }
   };
   const MODE_OF = { v: 'vocab', g: 'grammar', c: 'grammar', i: 'idiom', r: 'reading', b: 'builder' };
   const LVLS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -54,7 +55,8 @@
         xp: 0, total: 0, correct: 0, perMode: {}, dayXP: {}, dayQ: {}, dayAcc: {},
         streakLast: null, streakCur: 0, streakBest: 0,
         timeSec: 0, perfectSets: 0, reviewMastered: 0,
-        dailyDone: null, badges: {}, missions: {}, speakDone: 0, lastSetAcc: null
+        dailyDone: null, badges: {}, missions: {}, speakDone: 0, lastSetAcc: null,
+        chats: 0, coachSessions: 0
       }
     };
   }
@@ -132,7 +134,9 @@
     { id: 'daily1', e: '🌍', n: 'Daily Player', d: 'Complete a Daily Challenge', c: s => !!s.dailyDone },
     { id: 'speak10', e: '🎙️', n: 'Voice Starter', d: '10 speaking/listening exercises', c: s => s.speakDone >= 10 },
     { id: 'word25', e: '🗃️', n: 'Word Collector', d: '25 words in your collection', c: () => Object.keys(store.words).length >= 25 },
-    { id: 'placed', e: '🧭', n: 'Placed', d: 'Complete the placement test', c: () => !!store.placement }
+    { id: 'placed', e: '🧭', n: 'Placed', d: 'Complete the placement test', c: () => !!store.placement },
+    { id: 'chat1', e: '💬', n: 'Chatter', d: 'Have your first AI chat', c: () => store.stats.chats >= 1 },
+    { id: 'coach1', e: '🤖', n: 'Coach Session', d: 'Complete an AI Coach session', c: () => store.stats.coachSessions >= 1 }
   ];
   function checkBadges() {
     const s = store.stats;
@@ -197,6 +201,7 @@
     state.setLen = MODES[mode] ? MODES[mode].setLen : 1;
     state.answered = 0; state.correct = 0;
     state.feedback = null; state.chosen = []; state.current = null; state.refreshRetried = false;
+    if (mode === 'coach') return startCoach();
     if (mode === 'routine') return startRoutine();
     $('mode-grid').classList.add('hidden');
     $('game').classList.remove('hidden');
@@ -282,7 +287,7 @@
     state.t0 = Date.now();
 
     const seenStr = [...state.seen].join(',');
-    const mode = state.mode === 'review' ? 'grammar' : state.mode;
+    const mode = (state.mode === 'review' || state.mode === 'coach') ? 'grammar' : state.mode;
     const lvl = store.level || 'B1';
     const due = (state.mode === 'review' ? dueIds(null) : dueIds(mode)).slice(0, 6).join(',');
     try {
@@ -634,6 +639,11 @@
       setTimeout(() => { $('game').classList.add('hidden'); routineNext(); }, 700);
       return;
     }
+    if (state.mode === 'coach') {
+      saveStore(); checkBadges(); checkMissions();
+      setTimeout(coachSummary, 800);
+      return;
+    }
     socket.emit('set-complete', { mode: state.mode === 'review' ? 'grammar' : state.mode, score, total, xp: score * 10 });
     setTimeout(() => {
       switchTab('dash');
@@ -784,7 +794,7 @@
 
   document.querySelectorAll('.stab').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('.stab').forEach(x => x.classList.toggle('active', x === b));
-    ['listen', 'speak', 'talk'].forEach(k => $('st-' + k).classList.toggle('hidden', k !== b.dataset.st));
+    ['listen', 'speak', 'talk', 'chat'].forEach(k => $('st-' + k).classList.toggle('hidden', k !== b.dataset.st));
     if (b.dataset.st === 'listen') openListen(false);
     if (b.dataset.st === 'speak') openSpeak(false);
   }));
@@ -959,6 +969,329 @@
     });
   }
 
+  /* ================= AI COACH ================= */
+  const TOPICS = [
+    { id: 'prep', name: 'Prepositions', match: id => /^g:(0|1[01])$/.test(id) },
+    { id: 'art', name: 'Articles (a/an/the)', match: id => /^g:(1[2-9])$/.test(id) },
+    { id: 'tense', name: 'Tenses', match: id => /^g:(2[0-9]|3[0-5])$/.test(id) || /^c:/.test(id) },
+    { id: 'voice', name: 'Passive & agreement', match: id => /^g:(3[6-9]|4[01])$/.test(id) },
+    { id: 'comp', name: 'Comparatives & quantifiers', match: id => /^g:(4[2-9]|5[01])$/.test(id) },
+    { id: 'modal', name: 'Modals', match: id => /^g:(5[2-9])$/.test(id) },
+    { id: 'tag', name: 'Question tags', match: id => /^g:(6[0-6])$/.test(id) },
+    { id: 'clause', name: 'Clauses & conditionals', match: id => /^g:(6[7-9]|7\d)$/.test(id) },
+    { id: 'vocab', name: 'Vocabulary', match: id => /^v:/.test(id) },
+    { id: 'idiom', name: 'Idioms', match: id => /^i:/.test(id) },
+    { id: 'build', name: 'Sentence structure', match: id => /^b/.test(id) },
+    { id: 'read', name: 'Reading comprehension', match: id => /^r:/.test(id) }
+  ];
+
+  function analyzeWeak() {
+    const counts = {}, idsBy = {};
+    for (const [id, p] of Object.entries(store.profile)) {
+      if (!(p.w > 0) && p.stage < 1) continue;
+      for (const tp of TOPICS) {
+        if (tp.match(id)) {
+          counts[tp.name] = (counts[tp.name] || 0) + 1;
+          (idsBy[tp.name] = idsBy[tp.name] || []).push(id);
+        }
+      }
+    }
+    return Object.entries(counts)
+      .map(([topic, count]) => ({ topic, count, ids: idsBy[topic] }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+  }
+
+  function startCoach() {
+    const weak = analyzeWeak();
+    state.mode = 'coach';
+    state.answered = 0; state.correct = 0;
+    state.feedback = null; state.chosen = []; state.current = null;
+    state.coachIds = weak.flatMap(w => w.ids).slice(0, 8);
+    state.coachTopics = weak.map(w => w.topic);
+    state.setLen = Math.min(6, Math.max(state.coachIds.length, 1));
+    $('mode-grid').classList.add('hidden');
+    $('game').classList.remove('hidden');
+    $('game-mode-label').textContent = '🤖 AI Coach';
+    $('game-timer').classList.add('hidden');
+    updateProgress();
+    const go = () => state.coachIds.length ? nextCoach() : nextQuestion();
+    if (!state.coachIds.length) {
+      qEl.innerHTML = `<div class="coach-intro"><div class="ci-emoji">🤖</div><h3>Your AI Coach</h3>
+        <p>You haven't missed any questions yet — impressive! 🎉 Let's keep it that way: I'll quiz you on your least-practiced skill so you stay sharp.</p>
+        <button id="btn-coach-go" class="btn primary">Let's practice!</button></div>`;
+      $('btn-coach-go').onclick = go;
+      return;
+    }
+    const list = weak.map(w => `<b>${w.topic}</b> (${w.count} mistake${w.count > 1 ? 's' : ''})`).join(', ');
+    qEl.innerHTML = `<div class="coach-intro"><div class="ci-emoji">🤖</div><h3>Your AI Coach</h3>
+      <p>I noticed you frequently make mistakes with ${list}. Let's fix that together — ${state.setLen} targeted questions, one by one.</p>
+      <button id="btn-coach-go" class="btn primary">Let's practice!</button></div>`;
+    $('btn-coach-go').onclick = go;
+  }
+
+  async function nextCoach() {
+    state.feedback = null; state.chosen = [];
+    $('feedback').classList.add('hidden');
+    $('feedback').classList.remove('good', 'bad');
+    $('btn-similar').classList.add('hidden');
+    qEl.innerHTML = '<div class="empty">Coach is preparing your question…</div>';
+    state.t0 = Date.now();
+    while (state.coachIds.length) {
+      const id = state.coachIds.shift();
+      if (state.seen.has(id)) continue;
+      try {
+        const res = await fetch(`/api/question?mode=grammar&due=${encodeURIComponent(id)}&seen=${encodeURIComponent([...state.seen].join(','))}`);
+        const data = await res.json();
+        if (data.ok && data.question) {
+          state.current = data.question;
+          state.seen.add(data.question.id);
+          renderQuestion(data.question);
+          return;
+        }
+      } catch (e) { /* fall through */ }
+    }
+    nextQuestion();
+  }
+
+  function coachSummary() {
+    store.stats.coachSessions = (store.stats.coachSessions || 0) + 1;
+    saveStore(); checkBadges(); checkMissions();
+    const acc = state.answered ? Math.round((state.correct / state.answered) * 100) : 0;
+    qEl.innerHTML = `<div class="challenge-result">
+      <div class="cr-rank">${acc >= 80 ? '🌟' : acc >= 50 ? '👍' : '💪'}</div>
+      <div class="cr-score">Coach session: ${state.correct}/${state.answered} correct (${acc}%)</div>
+      <div class="cr-sub">${state.coachTopics.length ? 'Practiced: ' + state.coachTopics.join(', ') : ''}${acc >= 80 ? ' — your weak spots are improving!' : ' — missed ones are saved to your Review queue.'}</div>
+      <div class="fb-actions">
+        <button class="btn primary" id="btn-coach-done">See my profile</button>
+        <button class="btn ghost" id="btn-coach-more">Practice again</button>
+      </div></div>`;
+    $('btn-coach-done').onclick = () => { $('game').classList.add('hidden'); $('mode-grid').classList.remove('hidden'); switchTab('profile'); };
+    $('btn-coach-more').onclick = () => startCoach();
+  }
+
+  function renderCoachReport() {
+    const box = $('coach-report');
+    const weak = analyzeWeak();
+    if (!weak.length) {
+      box.innerHTML = '<div class="empty">No weak topics detected yet — you are doing great! Keep practicing to feed your coach.</div>';
+      return;
+    }
+    const worst = weak[0];
+    const pm = store.stats.perMode;
+    const lines = weak.map(w => `<span class="weak-chip">${w.topic} · ${w.count} miss</span>`).join(' ');
+    box.innerHTML = `<p>Your coach analyzed <b>${Object.values(pm).reduce((a, m) => a + m.t, 0)}</b> answers and found:</p>
+      <p>${lines}</p>
+      <p>💡 Recommendation: focus on <b>${worst.topic}</b> today — try the <b>AI Coach</b> mode or the Daily Plan.</p>`;
+  }
+
+  /* ================= AI CHAT (free typing + grammar feedback) ================= */
+  const COMMON_VERBS = ['go', 'come', 'work', 'play', 'like', 'want', 'need', 'have', 'do', 'eat', 'drink', 'read', 'write', 'walk', 'talk', 'study', 'watch', 'live', 'love', 'hate', 'know', 'think', 'say', 'see', 'make', 'take', 'get', 'use', 'help', 'call', 'ask', 'visit', 'stay', 'learn', 'teach', 'buy', 'sell', 'run', 'sleep', 'start', 'finish', 'feel', 'look', 'listen', 'speak', 'understand', 'remember', 'enjoy', 'wake', 'cook', 'clean', 'try', 'plan', 'travel', 'join', 'meet', 'send', 'tell', 'show', 'pay', 'wait', 'sit', 'stand'];
+  const IRREG_PAST = { go: 'went', see: 'saw', eat: 'ate', come: 'came', buy: 'bought', take: 'took', make: 'made', write: 'wrote', speak: 'spoke', get: 'got', have: 'had', do: 'did', read: 'read', give: 'gave', know: 'knew', think: 'thought', find: 'found', leave: 'left', meet: 'met', tell: 'told', say: 'said', sleep: 'slept', run: 'ran', sit: 'sat', stand: 'stood', understand: 'understood', win: 'won', teach: 'taught', build: 'built', send: 'sent', pay: 'paid' };
+  const NO_ING = ['want', 'like', 'need', 'believe', 'know', 'understand', 'have', 'agree', 'love', 'hate', 'remember', 'think', 'mean'];
+
+  function sForm3(v) {
+    if (v === 'have') return 'has';
+    if (v === 'do') return 'does';
+    if (v === 'go') return 'goes';
+    if (/(s|x|z|ch|sh|o)$/.test(v)) return v + 'es';
+    if (/[^aeiou]y$/.test(v)) return v.slice(0, -1) + 'ies';
+    return v + 's';
+  }
+  function checkGrammar(text) {
+    const fixes = [];
+    const low = (' ' + text.toLowerCase().replace(/\s+/g, ' ').trim() + ' ');
+    const add = (orig, fixed, note) => fixes.push({ orig, fixed, note });
+
+    if (/\b(she|he|it) don'?t\b/.test(low)) add('(he/she/it) don\'t', 'doesn\'t', 'Use "doesn\'t" with he/she/it.');
+    if (/\b(she|he|it) have\b/.test(low)) add('(he/she/it) have', 'has', 'Use "has" with he/she/it.');
+    if (/\b(i|you|we|they|my friends|the children) has\b/.test(low)) add('has → have', 'have', 'Use "have" with I/you/we/they.');
+    if (/\bi am agree\b/.test(low)) add('I am agree', 'I agree', '"Agree" is a verb — no "am" needed.');
+    const stative = low.match(/\bi am (want|like|need|believe|know|understand)\b/);
+    if (stative) add('I am ' + stative[1], 'I ' + stative[1], 'These verbs don\'t use "am": "I ' + stative[1] + '".');
+    if (/\bwhat you (want|like|need|do|doing)\b/.test(low)) add('what you…', 'what do you…', 'Questions need "do": "What do you …?"');
+    const none = low.match(/\bi no (have|like|want|know|go|work|understand)\b/);
+    if (none) add('I no ' + none[1], 'I don\'t ' + none[1], 'Negatives use "don\'t": "I don\'t ' + none[1] + '".');
+    if (/\bcan (you|i|we|he|she|they|one)? ?able to\b/.test(low)) add('can … able to', 'can', 'Use just "can": "Can you help me?"');
+    if (/\bmore better\b/.test(low)) add('more better', 'better', '"Better" is already comparative.');
+    if (/\bmore easier\b/.test(low)) add('more easier', 'easier', 'Drop "more".');
+    if (/\ba (apple|orange|egg|hour|umbrella|idea|engineer|honest|animal|exam|airport|office|umbrella)\b/.test(low)) add('a → an', 'an', 'Vowel sound → "an".');
+    if (/\ban (book|dog|car|pen|table|phone|school|student|teacher|cat|friend|market|park|bike|computer|house|village|boy|girl|man|woman|job|shop|trip)\b/.test(low)) add('an → a', 'a', 'Consonant sound → "a".');
+    if (/\byesterday|last (night|week|month|year|sunday|monday|weekend)\b/.test(low)) {
+      for (const [v, p] of Object.entries(IRREG_PAST)) {
+        if (new RegExp('\\b' + v + '\\b').test(low) && !new RegExp('\\b' + p + '\\b').test(low)) { add(v, p, 'Past time → past form "' + p + '".'); break; }
+      }
+    }
+    for (const v of COMMON_VERBS) {
+      if (new RegExp('\\b(she|he|it|my friend|my brother|my sister|the teacher|ravi) ' + v + '\\b(?!s)', 'i').test(text)) {
+        const f = sForm3(v);
+        add('(he/she/it) ' + v, f, 'With he/she/it, use "' + f + '".'); break;
+      }
+    }
+    for (const v of COMMON_VERBS) {
+      const f = sForm3(v);
+      if (new RegExp('\\b(i|you|we|they|my friends|the children) ' + f + '\\b', 'i').test(text)) { add('(I/you/we/they) ' + f, v, 'With I/you/we/they, no -s: "' + v + '".'); break; }
+      if (f !== v + 's' && new RegExp('\\b(i|you|we|they|my friends|the children) ' + v + 's\\b', 'i').test(text)) { add('(I/you/we/they) ' + v + 's', v, 'With I/you/we/they, no -s: "' + v + '".'); break; }
+    }
+    for (const v of COMMON_VERBS) {
+      if (NO_ING.includes(v)) continue;
+      if (new RegExp('\\bi am ' + v + '\\b(?!\\w)', 'i').test(text)) { add('I am ' + v, 'I am ' + v + 'ing', 'After "am" use the -ing form: "I am ' + v + 'ing".'); break; }
+    }
+    // dedupe identical fixes
+    return fixes.filter((f, i) => fixes.findIndex(x => x.orig === f.orig && x.fixed === f.fixed) === i).slice(0, 3);
+  }
+
+  function detectIntent(text) {
+    const l = text.toLowerCase();
+    if (/bye|goodbye|see you|good night|end the chat|exit/.test(l)) return 'bye';
+    if (/hi|hello|hey|namaste|good (morning|evening|afternoon|night)/.test(l)) return 'greet';
+    if (/how are (you|u)|how('s| is) it going|kaise/.test(l)) return 'howareyou';
+    if (/your name|who are you/.test(l)) return 'askname';
+    if (/where (are you|r u)|where.*(from|live)|i (am|live|stay) from|i am from/.test(l)) return 'hometown';
+    if (/my name is|call me|i am /.test(l)) return 'name';
+    if (/(work|job|office|company|developer|engineer|teacher|doctor|nurse|business|employee|software|it )/.test(l)) return 'work';
+    if (/(study|school|college|university|student|exam|learn)/.test(l)) return 'study';
+    if (/(food|eat|restaurant|chai|coffee|tea|dosa|biryani|curry|lunch|dinner|breakfast|taste|hungry)/.test(l)) return 'food';
+    if (/(hobby|like|love|enjoy|free time|weekend|cricket|movies|music|books|reading|travel|football|game|play)/.test(l)) return 'hobby';
+    if (/(family|mother|father|sister|brother|wife|husband|children|parents)/.test(l)) return 'family';
+    if (/(weather|rain|hot|cold|sunny|monsoon)/.test(l)) return 'weather';
+    if (/(plan|future|tomorrow|next week|goal|dream|will)/.test(l)) return 'plans';
+    if (/(thank|thanks|thx)/.test(l)) return 'thanks';
+    if (/^(yes|ok|okay|sure|no|yep|yeah)/.test(l.trim())) return 'yesno';
+    return 'fallback';
+  }
+
+  const CHAT_SCENES = {
+    smalltalk: {
+      botName: 'Alex',
+      intro: 'Hi! I am Alex 👋 Let us have a relaxed chat in English. Tell me your name, where you are from, or what you like!',
+      resp: {
+        greet: ['Hello! Great to meet you. Tell me about yourself — where are you from?', 'Hi there! How is your day going?'],
+        howareyou: ['I am doing great, thank you! And how about you?', 'All good here! What about you?'],
+        askname: ['I am Alex, your AI practice partner. And what is your name?'],
+        name: ['Nice to meet you! What do you do — work or study?', 'Lovely! Where are you from?'],
+        hometown: ['Interesting! What is it like there? Do you like your city?', 'Nice! Do you visit your hometown often?'],
+        work: ['That sounds interesting! What do you like most about your work?', 'Great! How long have you been doing that?'],
+        study: ['Nice! Which subject do you like the most?', 'Great — what do you want to do after you finish?'],
+        food: ['Yum! What is your favourite dish? Do you cook it yourself?', 'I love Indian food! What is your comfort meal?'],
+        hobby: ['That sounds fun! How often do you do that?', 'Nice hobby! Do you do it alone or with friends?'],
+        family: ['Family is important. Do you have brothers or sisters?', 'That is lovely. Do you all live together?'],
+        weather: ['The weather has been unpredictable lately, right? Do you like it?', 'Same here — I hope it clears up soon!'],
+        plans: ['Great goal! What is your first step?', 'That sounds exciting. When do you plan to start?'],
+        thanks: ['You are welcome! Keep practicing — you are doing really well!', 'Anytime! I am here whenever you want to chat.'],
+        bye: ['It was great chatting with you! Practice a little every day — see you soon! 👋', 'Goodbye! Remember: every chat makes you better. Bye!'],
+        yesno: ['Nice! Tell me more about that.', 'Sounds good — what else do you like?'],
+        fallback: ['Interesting! Tell me more.', 'I see! And what do you think about that?', 'Good point! What else?']
+      }
+    },
+    interview: {
+      botName: 'Ms. Rao',
+      intro: 'Good morning! I am Ms. Rao, the interviewer. Welcome — how are you today? Let us begin with introductions.',
+      resp: {
+        greet: ['Good morning! Please make yourself comfortable. How are you today?', 'Hello! Thank you for coming. Tell me about yourself.'],
+        howareyou: ['I am well, thank you. I am eager to learn about you — please introduce yourself.'],
+        askname: ['I am Ms. Rao, the hiring manager. And you are?'],
+        name: ['Pleased to meet you! Tell me about your education and work experience.', 'Great to meet you! What made you apply for this role?'],
+        hometown: ['Interesting background. Does your hometown influence how you work?', 'Nice! Why did you move to this city for work?'],
+        work: ['Good experience. What would you say is your biggest achievement at work?', 'How do you handle pressure or tight deadlines?'],
+        study: ['Great. What did you enjoy most during your studies?', 'How has your education helped you in your career?'],
+        food: ['Interesting! Now, let us focus on the role — tell me about a challenge you solved at work.'],
+        hobby: ['Nice to know! Hobbies show balance. Now — what is your greatest strength?', 'Great. And what is one weakness you are working on?'],
+        family: ['That is nice. Let us talk about your career goals — where do you see yourself in five years?'],
+        weather: ['Indeed. Now, back to the interview — why do you want to work at our company?'],
+        plans: ['Ambitious! How would you grow into that role here?', 'That is a solid plan. What skills are you building for it?'],
+        thanks: ['Thank you! We value enthusiasm. Do you have any questions for us?', 'You are welcome. Any questions about the role?'],
+        bye: ['Thank you for your time today. We will contact you soon — good luck!', 'It was a pleasure. Expect to hear from us within a week. Goodbye!'],
+        yesno: ['Great. Can you give me an example?', 'Noted. And how did that situation end?'],
+        fallback: ['Interesting point. Can you elaborate a little?', 'I see. And what did you learn from that?']
+      }
+    },
+    office: {
+      botName: 'Sam',
+      intro: 'Hey, I am Sam, your teammate 👋 We have a project review today. Let us chat like colleagues — how is your work going?',
+      resp: {
+        greet: ['Hey! Good to see you. Ready for the project review?', 'Hello! Busy day? Let us quickly sync up.'],
+        howareyou: ['Pretty good! Slightly busy with the new feature. How about you?', 'Doing well, thanks. How is your week going?'],
+        askname: ['I am Sam from the backend team. And you are?'],
+        name: ['Nice to meet you! Which team are you on?', 'Good to have you on the team! What do you work on?'],
+        hometown: ['Nice! How long have you been in this city?', 'Great. Do you work from the office or remotely?'],
+        work: ['What are you working on this week?', 'How is the project going on your side?'],
+        study: ['Interesting background! How did you get into this field?'],
+        food: ['Haha, coffee keeps the team going too! So — any blockers on the task?'],
+        hobby: ['Nice! Balance is important. Back to work — what is our deadline status?'],
+        family: ['That is sweet. Now, about the client meeting — are we ready for Thursday?'],
+        weather: ['Tell me about it! Anyway — did you get my email about the release?'],
+        plans: ['Good plan! Let us align on the timeline — when can we ship?', 'I like it. Can you share the details in the group chat?'],
+        thanks: ['No problem! Ping me if you need anything.', 'Anytime — we are a team!'],
+        bye: ['See you at the stand-up tomorrow! Keep up the great work 👋', 'Alright, let us catch up after the meeting. Bye!'],
+        yesno: ['Sounds good. What is the estimated time for that?', 'Perfect. Keep me posted on progress.'],
+        fallback: ['Understood. Any updates I should know about?', 'Got it. Should we discuss this in the next meeting?']
+      }
+    }
+  };
+
+  let chatScene = null, chatCount = 0, chatFixes = [], chatName = null, chatTopics = new Set();
+  document.querySelectorAll('#chat-picker .talk-scen').forEach(b => b.addEventListener('click', () => {
+    chatScene = CHAT_SCENES[b.dataset.c];
+    chatCount = 0; chatFixes = []; chatName = null; chatTopics = new Set();
+    $('chat-picker').classList.add('hidden');
+    $('chat-box').classList.remove('hidden');
+    $('chat-summary').classList.add('hidden');
+    const lines = $('chat-lines');
+    lines.innerHTML = `<div class="talk-bubble ai">${escapeHtml(chatScene.intro)}</div>`;
+    $('chat-input').focus();
+  }));
+  $('btn-chat-send').addEventListener('click', chatSend);
+  $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') chatSend(); });
+  $('btn-chat-end').addEventListener('click', chatEnd);
+
+  function chatSend() {
+    const input = $('chat-input');
+    const text = input.value.trim();
+    if (!text || !chatScene) return;
+    input.value = '';
+    const lines = $('chat-lines');
+    lines.insertAdjacentHTML('beforeend', `<div class="talk-bubble me">${escapeHtml(text)}</div>`);
+    chatCount++;
+    const fixes = checkGrammar(text);
+    const intent = detectIntent(text);
+    chatTopics.add(intent);
+    let reply;
+    if (intent === 'name') {
+      const m = text.match(/my name is (\w+)/i) || text.match(/i am (\w+)/i) || text.match(/call me (\w+)/i);
+      if (m) chatName = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    }
+    const pool = chatScene.resp[intent] || chatScene.resp.fallback;
+    reply = pool[Math.floor(Math.random() * pool.length)];
+    if (chatName && intent === 'name') reply = reply.replace('{name}', chatName);
+    setTimeout(() => {
+      lines.insertAdjacentHTML('beforeend', `<div class="talk-bubble ai">${escapeHtml(reply)}</div>`);
+      if (fixes.length) {
+        chatFixes.push(...fixes);
+        const fixHtml = fixes.map(f => `<div class="fix-item"><span class="fix-old">${escapeHtml(f.orig)}</span> → <span class="fix-new">${escapeHtml(f.fixed)}</span> <span style="color:#6b7280">(${escapeHtml(f.note)})</span></div>`).join('');
+        lines.insertAdjacentHTML('beforeend', `<div class="talk-bubble fb">💡 Quick fix: ${fixHtml}</div>`);
+      }
+      lines.scrollTop = lines.scrollHeight;
+    }, 450);
+    lines.scrollTop = lines.scrollHeight;
+  }
+
+  function chatEnd() {
+    if (!chatScene) return;
+    store.stats.chats = (store.stats.chats || 0) + 1;
+    saveStore(); checkBadges();
+    const sum = $('chat-summary');
+    sum.classList.remove('hidden');
+    const topics = [...chatTopics].map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(', ') || 'General chat';
+    sum.innerHTML = `<h4>📋 Chat feedback — ${escapeHtml(chatScene.botName)}</h4>
+      <div>💬 You sent <b>${chatCount}</b> messages · topics: ${escapeHtml(topics)}</div>
+      ${chatFixes.length ? `<div style="margin-top:6px">✏️ Grammar corrections (${chatFixes.length}):</div>` + chatFixes.map(f => `<div class="fix-item"><span class="fix-old">${escapeHtml(f.orig)}</span> → <span class="fix-new">${escapeHtml(f.fixed)}</span></div>`).join('') : '<div style="margin-top:6px">✏️ No grammar mistakes this chat — excellent! 🌟</div>'}
+      <div style="margin-top:8px">💡 <b>Tip:</b> ${chatFixes.length ? 'Review the corrections above, then try a new scenario and use them correctly.' : 'Try a longer reply next time — use "because", "although", "for example" to build fluency.'}</div>
+      <div class="fb-actions" style="margin-top:10px"><button class="btn primary" id="btn-chat-restart">Chat again</button><button class="btn ghost" id="btn-chat-close">Choose topic</button></div>`;
+    $('btn-chat-restart').onclick = () => { sum.classList.add('hidden'); $('chat-lines').innerHTML = `<div class="talk-bubble ai">${escapeHtml(chatScene.intro)}</div>`; chatCount = 0; chatFixes = []; chatName = null; chatTopics = new Set(); };
+    $('btn-chat-close').onclick = () => { $('chat-box').classList.add('hidden'); $('chat-picker').classList.remove('hidden'); };
+  }
+
   /* ---------- TTS ---------- */
   let voicesLoaded = false;
   function loadVoices() {
@@ -1083,6 +1416,8 @@
     }).join('');
     box.innerHTML = rows +
       (store.placement ? `<div class="profile-note">🎓 Overall level <b>${lvl}</b> — lessons auto-match your level. Practice regularly to level up to ${LVLS[Math.min(LVLS.indexOf(lvl) + 1, LVLS.length - 1)]}!</div>` : '');
+
+    renderCoachReport();
 
     // missions
     const mlist = $('mission-list');
