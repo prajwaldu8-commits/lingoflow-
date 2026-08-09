@@ -30,7 +30,7 @@ function shuffle(arr) {
 app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
 // App version — the client compares this to force-refresh stale cached versions
-const APP_VERSION = '4';
+const APP_VERSION = '5';
 app.get('/api/version', (req, res) => res.json({ v: APP_VERSION }));
 
 /* ---------------------------- REST API ---------------------------- */

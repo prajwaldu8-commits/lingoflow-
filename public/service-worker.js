@@ -1,6 +1,6 @@
 /* LingoFlow service worker v4 — network-first (always get the latest version),
    with cache fallback for offline use. Old caches are purged on activate. */
-const CACHE = 'lingoflow-v4';
+const CACHE = 'lingoflow-v5';
 const SHELL = ['/', '/styles.css', '/app.js', '/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', e => {

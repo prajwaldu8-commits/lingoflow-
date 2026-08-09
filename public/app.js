@@ -494,7 +494,6 @@
           <button class="btn ghost" id="btn-reset">⟲ Reset</button>
           <button class="btn primary" id="btn-check" disabled>Check ✓</button>
         </div>`;
-      buildChips(q);
     } else {
       q.options.forEach((opt, i) => {
         const b = document.createElement('button');
@@ -504,7 +503,10 @@
         opts.appendChild(b);
       });
     }
+    // IMPORTANT: append to the DOM first — buildChips() looks up #chip-area
+    // via getElementById, which only finds elements already in the document.
     qEl.appendChild(tpl);
+    if (q.type === 'builder') buildChips(q);
   }
 
   function buildChips(q) {
@@ -1597,7 +1599,7 @@
   }
 
   /* ---------- auto-update: if the server is newer than this cached app, reload ---------- */
-  const APP_VERSION = '4';
+  const APP_VERSION = '5';
   (async () => {
     try {
       const r = await fetch('/api/version', { cache: 'no-store' });
